@@ -41,16 +41,10 @@ app = FastAPI(
 )
 
 # CORS — allow configured origin or all origins in dev
-_ALLOWED_ORIGINS: List[str] = [
-    o.strip()
-    for o in os.getenv("CORS_ORIGINS", "*").split(",")
-    if o.strip()
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,  # must be False when allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
 )
