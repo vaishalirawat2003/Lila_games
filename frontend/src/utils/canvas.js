@@ -20,28 +20,18 @@ export const MINIMAP_FILES = {
 
 /**
  * Convert a normalised heat value (0–1) to an RGBA colour string.
- * Scale: Blue (cold) → Yellow (mid) → Red (hot).
+ * Scale: Orange (warm) → Red (hot), opacity scales with intensity.
  *
- * @param {number} t   0 = coldest, 1 = hottest
+ * @param {number} t   0 = coolest, 1 = hottest
  * @param {number} alpha  overall opacity multiplier (0–1)
  */
 export function heatColor(t, alpha = 0.6) {
-  let r, g, b;
-  if (t < 0.5) {
-    // Blue → Yellow
-    const s = t * 2; // 0→1
-    r = Math.round(s * 255);
-    g = Math.round(s * 255);
-    b = Math.round((1 - s) * 255);
-  } else {
-    // Yellow → Red
-    const s = (t - 0.5) * 2; // 0→1
-    r = 255;
-    g = Math.round((1 - s) * 255);
-    b = 0;
-  }
-  // Use a non-linear opacity curve so sparse cells stay visible but not loud
-  const a = (alpha * (0.2 + 0.8 * t)).toFixed(3);
+  // Orange (255,140,0) → Red (255,0,0)
+  const r = 255;
+  const g = Math.round((1 - t) * 140);
+  const b = 0;
+  // Opacity scales linearly with intensity
+  const a = (alpha * t).toFixed(3);
   return `rgba(${r},${g},${b},${a})`;
 }
 
@@ -55,15 +45,28 @@ export function drawHeatmap(ctx, heatmapData) {
   const { cells, max_value } = heatmapData;
   if (!cells || max_value === 0) return;
 
+  // Draw cells onto an offscreen canvas, then blur + composite onto main ctx
+  const offscreen = document.createElement('canvas');
+  offscreen.width = IMAGE_SIZE;
+  offscreen.height = IMAGE_SIZE;
+  const off = offscreen.getContext('2d');
+
   for (let row = 0; row < GRID_SIZE; row++) {
     for (let col = 0; col < GRID_SIZE; col++) {
       const val = cells[row][col];
-      if (val === 0) continue;
       const t = val / max_value;
-      ctx.fillStyle = heatColor(t);
-      ctx.fillRect(col * CELL_PX, row * CELL_PX, CELL_PX, CELL_PX);
+      if (t < 0.1) continue; // skip cold cells — let map show through
+      off.fillStyle = heatColor(t);
+      off.fillRect(col * CELL_PX, row * CELL_PX, CELL_PX, CELL_PX);
     }
   }
+
+  // Apply gaussian blur for smooth gradient between cells
+  ctx.filter = 'blur(10px)';
+  ctx.drawImage(offscreen, 0, 0);
+  // Reset state so subsequent draws are unaffected
+  ctx.filter = 'none';
+  ctx.globalAlpha = 1;
 }
 
 /**

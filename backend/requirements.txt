@@ -6,7 +6,7 @@ python-multipart==0.0.20      # required for FastAPI file uploads
 # ── Data processing ──────────────────────────────────────────────────────────
 pandas==2.2.3
 pyarrow==18.1.0               # parquet read/write engine
-numpy==2.2.1
+numpy
 
 # ── Config / utilities ───────────────────────────────────────────────────────
 python-dotenv==1.0.1          # load .env for local dev (CORS origins etc.)
