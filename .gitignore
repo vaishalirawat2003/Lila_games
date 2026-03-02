@@ -1,0 +1,30 @@
+# ── Raw data (never commit) ───────────────────────────────────────────────────
+player_data/
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ── Node / React ──────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/build/
+frontend/.env.local
+frontend/.env.*.local
+
+# ── Environment / secrets ─────────────────────────────────────────────────────
+.env
+.env.local
+*.env
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

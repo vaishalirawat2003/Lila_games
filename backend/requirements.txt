@@ -1,0 +1,16 @@
+# ── Web framework ────────────────────────────────────────────────────────────
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20      # required for FastAPI file uploads
+
+# ── Data processing ──────────────────────────────────────────────────────────
+pandas==2.2.3
+pyarrow==18.1.0               # parquet read/write engine
+numpy==2.2.1
+
+# ── Config / utilities ───────────────────────────────────────────────────────
+python-dotenv==1.0.1          # load .env for local dev (CORS origins etc.)
+
+# ── Dev / testing ─────────────────────────────────────────────────────────────
+httpx==0.28.1                 # async test client for FastAPI (TestClient)
+pytest==8.3.4
