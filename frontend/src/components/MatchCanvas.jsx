@@ -15,12 +15,12 @@ const EVENT_CATEGORIES = {
 // ── Marker styles ─────────────────────────────────────────────────────────────
 
 const MARKER_STYLES = {
-  Kill:           { color: '#ef4444', size: 9  },   // red  ✕
-  Killed:         { color: '#991b1b', size: 8  },   // dark red  ●
-  BotKill:        { color: '#f97316', size: 6  },   // orange  ✕
-  BotKilled:      { color: '#f97316', size: 6  },   // orange  ●
-  KilledByStorm:  { color: '#a855f7', size: 9  },   // purple  ◆
-  Loot:           { color: '#eab308', size: 7  },   // gold  ★
+  Kill:           { color: '#ef4444', size: 9  },
+  Killed:         { color: '#991b1b', size: 8  },
+  BotKill:        { color: '#f97316', size: 6  },
+  BotKilled:      { color: '#f97316', size: 6  },
+  KilledByStorm:  { color: '#a855f7', size: 9  },
+  Loot:           { color: '#eab308', size: 7  },
 };
 
 // ── Drawing primitives ────────────────────────────────────────────────────────
@@ -41,10 +41,10 @@ function drawDot(ctx, px, py, r) {
 
 function drawDiamond(ctx, px, py, size) {
   ctx.beginPath();
-  ctx.moveTo(px,          py - size);
-  ctx.lineTo(px + size,   py);
-  ctx.lineTo(px,          py + size);
-  ctx.lineTo(px - size,   py);
+  ctx.moveTo(px,        py - size);
+  ctx.lineTo(px + size, py);
+  ctx.lineTo(px,        py + size);
+  ctx.lineTo(px - size, py);
   ctx.closePath();
   ctx.fill();
 }
@@ -100,13 +100,16 @@ function drawEventMarker(ctx, event, px, py) {
 
 // ── Path drawing ──────────────────────────────────────────────────────────────
 
-function drawPath(ctx, posEvents, color, isBot) {
+/**
+ * @param {number} alpha  overall opacity for this path (0–1)
+ */
+function drawPath(ctx, posEvents, color, isBot, alpha) {
   if (posEvents.length < 2) return;
 
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineWidth   = isBot ? 1 : 1.5;
-  ctx.globalAlpha = 0.7;
+  ctx.globalAlpha = alpha;
 
   if (isBot) {
     ctx.setLineDash([4, 6]);
@@ -127,14 +130,15 @@ function drawPath(ctx, posEvents, color, isBot) {
  * MatchCanvas — renders minimap + player paths + event markers.
  *
  * Props:
- *   mapId         string
- *   matchData     object   full match from /match/{id}
- *   currentTs     number   current absolute playback timestamp
- *   playbackMode  string   'paths' | 'events'
- *   showHumans    bool
- *   showBots      bool
- *   showEvents    { kills, deaths, loot, storm }  — which event types to show
- *   loading       bool
+ *   mapId           string
+ *   matchData       object    full match from /match/{id}
+ *   currentTs       number    current absolute playback timestamp
+ *   playbackMode    string    'paths' | 'events'
+ *   showHumans      bool
+ *   showBots        bool
+ *   showEvents      { kills, deaths, loot, storm }
+ *   focusedPlayerId string|null  highlight one player, dim all others
+ *   loading         bool
  */
 export default function MatchCanvas({
   mapId,
@@ -144,12 +148,13 @@ export default function MatchCanvas({
   showHumans,
   showBots,
   showEvents,
+  focusedPlayerId,
   loading,
 }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
-    if (!mapId || !matchData || loading) return;
+    if (!mapId || loading) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -159,20 +164,43 @@ export default function MatchCanvas({
 
     loadImage(src)
       .then((img) => {
-        // 1. Minimap base
+        // 1. Minimap base — greyscale so markers and paths dominate
         ctx.clearRect(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+        ctx.filter = 'grayscale(100%) brightness(0.65)';
         ctx.drawImage(img, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
+        ctx.filter = 'none';
+
+        if (!matchData) {
+          ctx.fillStyle = 'rgba(0,0,0,0.45)';
+          ctx.fillRect(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+          ctx.fillStyle = 'rgba(255,255,255,0.6)';
+          ctx.font = 'bold 28px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('Select a match to begin', IMAGE_SIZE / 2, IMAGE_SIZE / 2);
+          return;
+        }
 
         const { players } = matchData;
+
+        // Helper: opacity for a given player based on focus state
+        function pathAlpha(player) {
+          if (!focusedPlayerId) return 0.70;
+          return player.user_id === focusedPlayerId ? 0.90 : 0.12;
+        }
+        function markerAlpha(player) {
+          if (!focusedPlayerId) return 1.0;
+          return player.user_id === focusedPlayerId ? 1.0 : 0.12;
+        }
 
         // 2. Bot paths (drawn first so human paths render on top)
         if (playbackMode === 'paths' && showBots) {
           for (const player of players) {
             if (!player.is_bot) continue;
             const posEvents = player.events.filter(
-              (e) => POSITION_EVENTS.has(e.event) && e.ts <= currentTs
+              (e) => e.ts <= currentTs
             );
-            drawPath(ctx, posEvents, '#6b7280', true);
+            drawPath(ctx, posEvents, '#faff00', true, pathAlpha(player));
           }
         }
 
@@ -181,28 +209,32 @@ export default function MatchCanvas({
           for (const player of players) {
             if (player.is_bot) continue;
             const posEvents = player.events.filter(
-              (e) => POSITION_EVENTS.has(e.event) && e.ts <= currentTs
+              (e) => e.ts <= currentTs
             );
-            drawPath(ctx, posEvents, player.color, false);
+            drawPath(ctx, posEvents, player.color, false, pathAlpha(player));
           }
         }
 
         // 4. Event markers — layered on top of all paths
         for (const player of players) {
-          if (player.is_bot && !showBots)     continue;
-          if (!player.is_bot && !showHumans)  continue;
+          if (player.is_bot  && !showBots)   continue;
+          if (!player.is_bot && !showHumans) continue;
+
+          const mAlpha = markerAlpha(player);
 
           for (const ev of player.events) {
             if (ev.ts > currentTs) continue;
             if (POSITION_EVENTS.has(ev.event)) continue;
 
-            // Check per-category visibility toggle
             const visible = Object.entries(EVENT_CATEGORIES).some(
               ([cat, evSet]) => evSet.has(ev.event) && showEvents[cat]
             );
             if (!visible) continue;
 
+            ctx.save();
+            ctx.globalAlpha = mAlpha;
             drawEventMarker(ctx, ev.event, ev.px, ev.py);
+            ctx.restore();
           }
         }
       })
@@ -212,7 +244,7 @@ export default function MatchCanvas({
         ctx2.fillStyle = '#18181b';
         ctx2.fillRect(0, 0, IMAGE_SIZE, IMAGE_SIZE);
       });
-  }, [mapId, matchData, currentTs, playbackMode, showHumans, showBots, showEvents, loading]);
+  }, [mapId, matchData, currentTs, playbackMode, showHumans, showBots, showEvents, focusedPlayerId, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (

@@ -98,10 +98,13 @@ def _parse_file(file_bytes: bytes, filename: str = "") -> Optional[pd.DataFrame]
         df["date"] = _extract_date(filename)
 
         # Normalise ts to integer milliseconds.
-        # Parquet stores ts as timestamp[ms] which pyarrow/pandas reads as
-        # datetime64 — recover the raw integer ms by going through int64 ns.
+        # The parquet column is typed timestamp[ms] but the raw int64 values
+        # are Unix seconds (not ms) — the data was produced with a seconds-
+        # precision clock and stored without scaling.  Pandas therefore reads
+        # them as "N ms after epoch" (≈ Jan 1970 dates).  We recover the raw
+        # integer and multiply by 1 000 to convert seconds → ms.
         if pd.api.types.is_datetime64_any_dtype(df["ts"]):
-            df["ts"] = df["ts"].astype("datetime64[ns]").astype("int64") // 1_000_000
+            df["ts"] = df["ts"].astype("datetime64[ns]").astype("int64") // 1_000_000 * 1_000
         else:
             df["ts"] = pd.to_numeric(df["ts"], errors="coerce").fillna(0).astype("int64")
 
@@ -299,17 +302,27 @@ def get_summary(df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
-def get_maps_info(df: pd.DataFrame) -> List[Dict[str, Any]]:
-    """Return per-map match counts and date ranges."""
+def get_maps_info(df: pd.DataFrame, include_bots: bool = False) -> List[Dict[str, Any]]:
+    """
+    Return per-map match counts and unique player counts.
+
+    include_bots=False (default): player_count = unique human UUID users only.
+    include_bots=True: player_count = all unique user_ids (humans + bots).
+    """
     if df.empty:
         return []
 
     result: List[Dict[str, Any]] = []
     for map_id in df["map_id"].unique():
         map_df = df[df["map_id"] == map_id]
+        if include_bots:
+            player_count = map_df["user_id"].nunique()
+        else:
+            player_count = map_df[~map_df["is_bot"]]["user_id"].nunique()
         result.append({
             "map_id": map_id,
             "match_count": map_df["match_id_display"].nunique(),
+            "player_count": player_count,
         })
     return result
 

@@ -2,16 +2,18 @@ import React, { useCallback, useEffect, useState } from 'react';
 import ControlPanel from '../components/ControlPanel';
 import Legend from '../components/Legend';
 import MapCanvas from '../components/MapCanvas';
-import { fetchHeatmap } from '../utils/api';
+import { fetchHeatmap, fetchMaps } from '../utils/api';
 
 const HEATMAP_TYPES = ['kills', 'deaths', 'storm', 'loot', 'traffic'];
+
+// Heatmap render order: traffic drawn first (bottom), kills last (top)
+const LAYER_Z_ORDER = ['traffic', 'loot', 'storm', 'deaths', 'kills'];
 
 /**
  * MapOverview — default screen after upload.
  *
  * Shows aggregate heatmaps across all matches for the selected map.
- * Level Designers use this to spot high-level spatial patterns before
- * drilling into individual matches via the Match Explorer.
+ * Multiple heatmap layers can be active simultaneously (independent toggles).
  *
  * Props:
  *   summary         object   { match_count, player_count, map_count, maps }
@@ -21,35 +23,59 @@ const HEATMAP_TYPES = ['kills', 'deaths', 'storm', 'loot', 'traffic'];
 export default function MapOverview({ summary, onExplore, onReupload }) {
   const availableMaps = summary?.maps ?? [];
   const [selectedMap, setSelectedMap] = useState(availableMaps[0] ?? '');
-  const [heatmapType, setHeatmapType] = useState('kills');
+
+  // Independent layer toggles — kills on by default
+  const [activeLayers, setActiveLayers] = useState({
+    kills: true, deaths: false, storm: false, loot: false, traffic: false,
+  });
+
   const [showDeadZones, setShowDeadZones] = useState(false);
 
-  // Cache: heatmaps[mapId][type] = heatmap response
+  // Bots excluded by default — Level Designers care primarily about human behaviour
+  const [includeBots, setIncludeBots] = useState(false);
+
+  // Cache keyed by "mapId:includeBots" so both variants coexist without
+  // invalidation — toggling bots twice costs one extra fetch, then it's instant.
   const [heatmapCache, setHeatmapCache] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Per-map stats: { [mapId]: { match_count, player_count } }
+  const [mapStats, setMapStats] = useState({});
+
   // ── Data fetching ──────────────────────────────────────────────────────────
 
-  // Fetch all 5 heatmap types for a map in parallel and cache them.
-  // This way switching between types is instant after the first load.
-  const loadHeatmapsForMap = useCallback(async (mapId) => {
-    if (!mapId) return;
+  // Re-fetch per-map stats whenever the bots toggle changes
+  useEffect(() => {
+    fetchMaps(includeBots)
+      .then((data) => {
+        const byMap = {};
+        for (const item of data) {
+          byMap[item.map_id] = item;
+        }
+        setMapStats(byMap);
+      })
+      .catch(() => {}); // non-critical — stats show '—' on failure
+  }, [includeBots]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Skip if already cached
-    if (heatmapCache[mapId]) return;
+  // Fetch all 5 heatmap types for the given map + bots setting in parallel.
+  // Results are cached under "mapId:includeBots" so switching back is instant.
+  const loadHeatmapsForMap = useCallback(async (mapId, bots) => {
+    if (!mapId) return;
+    const cacheKey = `${mapId}:${bots}`;
+    if (heatmapCache[cacheKey]) return; // already cached
 
     setLoading(true);
     setError('');
 
     try {
       const results = await Promise.all(
-        HEATMAP_TYPES.map((type) => fetchHeatmap(mapId, type))
+        HEATMAP_TYPES.map((type) => fetchHeatmap(mapId, type, bots))
       );
       const byType = {};
       HEATMAP_TYPES.forEach((type, i) => { byType[type] = results[i]; });
 
-      setHeatmapCache((prev) => ({ ...prev, [mapId]: byType }));
+      setHeatmapCache((prev) => ({ ...prev, [cacheKey]: byType }));
     } catch (err) {
       setError(err.message || 'Failed to load heatmap data.');
     } finally {
@@ -57,15 +83,27 @@ export default function MapOverview({ summary, onExplore, onReupload }) {
     }
   }, [heatmapCache]);
 
-  // Load on mount and whenever the selected map changes
+  // Load whenever the selected map or bots toggle changes
   useEffect(() => {
-    loadHeatmapsForMap(selectedMap);
-  }, [selectedMap]); // eslint-disable-line react-hooks/exhaustive-deps
+    loadHeatmapsForMap(selectedMap, includeBots);
+  }, [selectedMap, includeBots]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived data ───────────────────────────────────────────────────────────
 
-  const currentHeatmap = heatmapCache[selectedMap]?.[heatmapType] ?? null;
-  const trafficData    = heatmapCache[selectedMap]?.traffic ?? null;
+  const cacheKey = `${selectedMap}:${includeBots}`;
+
+  // Build the ordered array of active heatmap layers for MapCanvas
+  const heatmapLayers = LAYER_Z_ORDER
+    .filter((type) => activeLayers[type] && heatmapCache[cacheKey]?.[type])
+    .map((type) => heatmapCache[cacheKey][type]);
+
+  const trafficData = heatmapCache[cacheKey]?.traffic ?? null;
+
+  // ── Handlers ───────────────────────────────────────────────────────────────
+
+  function handleLayerToggle(type) {
+    setActiveLayers((prev) => ({ ...prev, [type]: !prev[type] }));
+  }
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -111,11 +149,14 @@ export default function MapOverview({ summary, onExplore, onReupload }) {
 
         {/* Left: control panel */}
         <ControlPanel
-          heatmapType={heatmapType}
-          onHeatmapType={setHeatmapType}
+          activeLayers={activeLayers}
+          onLayerToggle={handleLayerToggle}
+          includeBots={includeBots}
+          onIncludeBots={() => setIncludeBots((v) => !v)}
           showDeadZones={showDeadZones}
           onDeadZones={() => setShowDeadZones((v) => !v)}
-          summary={summary}
+          selectedMap={selectedMap}
+          mapStats={mapStats}
           loading={loading}
         />
 
@@ -134,15 +175,15 @@ export default function MapOverview({ summary, onExplore, onReupload }) {
           <div className="flex-1 min-h-0">
             <MapCanvas
               mapId={selectedMap}
-              heatmapData={currentHeatmap}
+              heatmapLayers={heatmapLayers}
               trafficData={trafficData}
               showDeadZones={showDeadZones}
-              loading={loading && !currentHeatmap}
+              loading={loading && !heatmapCache[cacheKey]}
             />
           </div>
 
-          {/* Colour scale legend */}
-          <Legend />
+          {/* Colour scale legend — one row per active layer */}
+          <Legend activeLayers={activeLayers} />
 
           {/* Explore button */}
           <div className="flex justify-end border-t border-zinc-800 pt-3">

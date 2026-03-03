@@ -8,23 +8,25 @@ import {
 } from '../utils/canvas';
 
 /**
- * MapCanvas — renders a minimap with a heatmap overlay on an HTML5 Canvas.
+ * MapCanvas — renders a minimap with stacked heatmap overlays on an HTML5 Canvas.
  *
- * The canvas internal resolution is always 1024×1024 (matching the minimap
- * images). CSS scales it to fill the available container width.
+ * The minimap is drawn in greyscale at 65% brightness so heatmap colours
+ * dominate. Multiple heatmap layers can be active simultaneously; the caller
+ * supplies them in the desired z-order (bottom → top).
  *
  * Props:
- *   mapId          string   "AmbroseValley" | "GrandRift" | "Lockdown"
- *   heatmapData    object   { cells, max_value, grid_size } from /heatmap
- *   trafficData    object   traffic heatmap (used for dead-zone computation)
- *   showDeadZones  bool     whether to render the dead-zone grey overlay
- *   loading        bool     show loading state instead of canvas
+ *   mapId          string    "AmbroseValley" | "GrandRift" | "Lockdown"
+ *   heatmapLayers  object[]  heatmap objects ({ cells, max_value, type })
+ *                            in z-order, bottom to top. May be empty.
+ *   trafficData    object    traffic heatmap (used for dead-zone computation)
+ *   showDeadZones  bool      whether to render the dead-zone grey overlay
+ *   loading        bool      show loading state instead of canvas
  */
-export default function MapCanvas({ mapId, heatmapData, trafficData, showDeadZones, loading }) {
+export default function MapCanvas({ mapId, heatmapLayers, trafficData, showDeadZones, loading }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
-    if (!mapId || !heatmapData || loading) return;
+    if (!mapId || loading) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -35,12 +37,20 @@ export default function MapCanvas({ mapId, heatmapData, trafficData, showDeadZon
 
     loadImage(src)
       .then((img) => {
-        // Clear and draw minimap base
         ctx.clearRect(0, 0, IMAGE_SIZE, IMAGE_SIZE);
-        ctx.drawImage(img, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
 
-        // Heatmap overlay
-        drawHeatmap(ctx, heatmapData);
+        // Greyscale minimap at 65% brightness — geographic skeleton that
+        // doesn't compete visually with the heatmap colour overlays
+        ctx.filter = 'grayscale(100%) brightness(0.65)';
+        ctx.drawImage(img, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
+        ctx.filter = 'none';
+
+        // Heatmap layers drawn in z-order (caller pre-sorts: traffic → kills)
+        if (heatmapLayers && heatmapLayers.length > 0) {
+          for (const layer of heatmapLayers) {
+            drawHeatmap(ctx, layer);
+          }
+        }
 
         // Dead zones (grey) overlay — requires traffic data
         if (showDeadZones && trafficData) {
@@ -56,7 +66,7 @@ export default function MapCanvas({ mapId, heatmapData, trafficData, showDeadZon
         ctx.textAlign = 'center';
         ctx.fillText('Minimap unavailable', IMAGE_SIZE / 2, IMAGE_SIZE / 2);
       });
-  }, [mapId, heatmapData, trafficData, showDeadZones, loading]);
+  }, [mapId, heatmapLayers, trafficData, showDeadZones, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (

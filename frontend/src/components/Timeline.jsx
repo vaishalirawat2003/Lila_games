@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatTime } from '../hooks/usePlayback';
 
-const SPEEDS = [0.5, 1, 2, 4];
+const SPEEDS = [15, 30, 60, 120, 240];
 
 /**
  * Timeline — playback controls bar shown at the bottom of the Match Explorer.

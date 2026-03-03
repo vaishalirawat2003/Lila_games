@@ -54,9 +54,12 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 _store: Dict[str, Any] = {
-    "df": None,          # pd.DataFrame — all processed events
-    "heatmaps": {},      # heatmaps[map_id][heatmap_type] = heatmap dict
-    "summary": {},       # result of get_summary()
+    "df": None,                # pd.DataFrame — all processed events
+    "heatmaps": {},            # heatmaps[map_id][type] — all rows (bots included)
+    "heatmaps_no_bots": {},    # same, but bot position rows excluded
+    "maps_info": [],           # per-map stats, bots counted in player_count
+    "maps_info_no_bots": [],   # per-map stats, only human players counted
+    "summary": {},             # result of get_summary()
 }
 
 
@@ -108,13 +111,21 @@ async def upload(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
             detail="No valid parquet data found in the uploaded files.",
         )
 
-    # Pre-compute heatmaps once; serve from cache on subsequent requests
-    heatmaps = compute_all_heatmaps(df)
-    summary = get_summary(df)
+    # Pre-compute both heatmap variants once at upload time so GET requests
+    # are always instant regardless of the include_bots query param.
+    human_df = df[~df["is_bot"]]
+    heatmaps          = compute_all_heatmaps(df)
+    heatmaps_no_bots  = compute_all_heatmaps(human_df)
+    summary           = get_summary(df)
+    maps_info         = get_maps_info(df, include_bots=True)
+    maps_info_no_bots = get_maps_info(df, include_bots=False)
 
-    _store["df"] = df
-    _store["heatmaps"] = heatmaps
-    _store["summary"] = summary
+    _store["df"]               = df
+    _store["heatmaps"]         = heatmaps
+    _store["heatmaps_no_bots"] = heatmaps_no_bots
+    _store["maps_info"]        = maps_info
+    _store["maps_info_no_bots"]= maps_info_no_bots
+    _store["summary"]          = summary
 
     return {
         "status": "ok",
@@ -145,15 +156,20 @@ def health() -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 @app.get("/maps", summary="List maps with match counts")
-def maps() -> List[Dict[str, Any]]:
+def maps(
+    include_bots: bool = Query(False, description="Include bot users in player_count"),
+) -> List[Dict[str, Any]]:
     """
     Returns one entry per map present in the loaded data.
 
     Response shape:
-      [{"map_id": "AmbroseValley", "match_count": 200}, ...]
+      [{"map_id": "AmbroseValley", "match_count": 200, "player_count": 45}, ...]
+
+    include_bots=false (default): player_count counts only human UUID users.
+    include_bots=true: player_count counts all unique user_ids (humans + bots).
     """
-    df = _require_data()
-    return get_maps_info(df)
+    _require_data()
+    return _store["maps_info"] if include_bots else _store["maps_info_no_bots"]
 
 
 # ---------------------------------------------------------------------------
@@ -224,9 +240,14 @@ def match(match_id: str) -> Dict[str, Any]:
 def heatmap(
     map: str = Query(..., description="map_id — AmbroseValley | GrandRift | Lockdown"),
     type: str = Query(..., description=f"One of: {', '.join(HEATMAP_TYPES)}"),
+    include_bots: bool = Query(False, description="Include bot rows in the heatmap computation"),
 ) -> Dict[str, Any]:
     """
     Returns a pre-computed 64×64 heatmap grid for the given map and event type.
+
+    include_bots=false (default): traffic layer uses only Position events from
+    human players; bot BotPosition rows are excluded.
+    include_bots=true: all rows included (original behaviour).
 
     Response shape:
       {
@@ -245,7 +266,7 @@ def heatmap(
             detail=f"Invalid type '{type}'. Must be one of: {HEATMAP_TYPES}",
         )
 
-    heatmaps = _store["heatmaps"]
+    heatmaps = _store["heatmaps"] if include_bots else _store["heatmaps_no_bots"]
     if map not in heatmaps:
         raise HTTPException(
             status_code=404,

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import UploadScreen from './screens/UploadScreen';
 import MapOverview from './screens/MapOverview';
-// import MatchExplorer from './screens/MatchExplorer'; // Step 7
+import MatchExplorer from './screens/MatchExplorer';
 
 /**
  * App — top-level screen router.
@@ -46,29 +46,14 @@ export default function App() {
   }
 
   if (screen === 'explorer') {
-    // MatchExplorer wired in Step 7
-    return <ExplorerPlaceholder onBack={handleBackToOverview} />;
+    return (
+      <MatchExplorer
+        summary={uploadSummary}
+        onBack={handleBackToOverview}
+      />
+    );
   }
 
   return null;
-}
-
-// ---------------------------------------------------------------------------
-// Temporary placeholder — replaced in Step 7
-// ---------------------------------------------------------------------------
-
-function ExplorerPlaceholder({ onBack }) {
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-zinc-950 text-white">
-      <h2 className="text-2xl font-bold">Match Explorer</h2>
-      <p className="text-zinc-400 text-sm">(This screen is built in Step 7)</p>
-      <button
-        onClick={onBack}
-        className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-400 hover:text-white"
-      >
-        ← Back to Map Overview
-      </button>
-    </div>
-  );
 }
 

@@ -8,29 +8,23 @@ import { useEffect, useRef, useState } from 'react';
  *
  * @param {number} minTs  smallest ts in the match (match start)
  * @param {number} maxTs  largest ts in the match (match end)
- *
- * Returns:
- *   currentTs   number   current absolute timestamp
- *   isPlaying   bool
- *   speed       number   1 | 0.5 | 2 | 4
- *   togglePlay  fn
- *   rewind      fn       jump back to start
- *   scrub       fn(elapsedMs)  jump to a specific elapsed position
- *   setSpeed    fn(n)
  */
 export function usePlayback(minTs, maxTs) {
   const [currentTs, setCurrentTs] = useState(minTs);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed]         = useState(1);
+  const [speed, setSpeed]         = useState(60); // default: 60× — 10-min match in ~10 sec
 
   const lastWallRef = useRef(null);
 
-  // Reset when the match changes
+  // Reset whenever the match changes.
+  // Watching BOTH minTs and maxTs ensures the reset fires even when ts values
+  // are match-relative (starting at 0 for every match), where minTs alone
+  // would be identical across matches and never re-trigger.
   useEffect(() => {
     setCurrentTs(minTs);
     setIsPlaying(false);
     lastWallRef.current = null;
-  }, [minTs]);
+  }, [minTs, maxTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // RAF loop — advances currentTs by (wallDelta × speed) each frame
   useEffect(() => {
@@ -67,7 +61,6 @@ export function usePlayback(minTs, maxTs) {
   }, [isPlaying, speed, maxTs]);
 
   function togglePlay() {
-    // If at end, restart from beginning
     if (currentTs >= maxTs) {
       setCurrentTs(minTs);
     }

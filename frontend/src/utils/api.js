@@ -42,11 +42,13 @@ export async function uploadFiles(files) {
 }
 
 /**
- * Fetch per-map match counts.
- * @returns {Promise<{map_id, match_count}[]>}
+ * Fetch per-map match and player counts.
+ * @param {boolean} includeBots  include bot user_ids in player_count (default false)
+ * @returns {Promise<{map_id, match_count, player_count}[]>}
  */
-export async function fetchMaps() {
-  const res = await fetch(`${API_BASE}/maps`);
+export async function fetchMaps(includeBots = false) {
+  const params = new URLSearchParams({ include_bots: includeBots });
+  const res = await fetch(`${API_BASE}/maps?${params}`);
   if (!res.ok) throw new Error('Failed to fetch maps');
   return res.json();
 }
@@ -80,10 +82,11 @@ export async function fetchMatch(matchId) {
  * Fetch a pre-computed heatmap grid.
  * @param {string} mapId
  * @param {'kills'|'deaths'|'storm'|'loot'|'traffic'} type
+ * @param {boolean} includeBots  include bot rows in computation (default false)
  * @returns {Promise<{map_id, type, grid_size, cells, max_value}>}
  */
-export async function fetchHeatmap(mapId, type) {
-  const params = new URLSearchParams({ map: mapId, type });
+export async function fetchHeatmap(mapId, type, includeBots = false) {
+  const params = new URLSearchParams({ map: mapId, type, include_bots: includeBots });
   const res = await fetch(`${API_BASE}/heatmap?${params}`);
   if (!res.ok) throw new Error(`Failed to fetch heatmap: ${mapId}/${type}`);
   return res.json();
