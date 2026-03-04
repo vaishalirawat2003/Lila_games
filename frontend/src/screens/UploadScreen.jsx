@@ -86,12 +86,21 @@ function ProgressBar() {
 // Main component
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Upload limits (must match backend constants)
+// ---------------------------------------------------------------------------
+
+const MAX_FILE_COUNT  = 2000;
+const MAX_FILE_SIZE   = 5 * 1024 * 1024;    // 5 MB per file
+const MAX_TOTAL_SIZE  = 100 * 1024 * 1024;  // 100 MB total
+
 export default function UploadScreen({ onUploadComplete }) {
   // 'idle' | 'staged' | 'uploading' | 'error'
   const [status, setStatus] = useState('idle');
   const [dragging, setDragging]       = useState(false); // file card
   const [draggingFolder, setDraggingFolder] = useState(false); // folder card
   const [uploadingCount, setUploadingCount] = useState(0);
+  const [skippedCount, setSkippedCount] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
 
   // Folder staging — accumulate files from multiple folder picks before uploading
@@ -106,7 +115,49 @@ export default function UploadScreen({ onUploadComplete }) {
   const handleFiles = useCallback(
     async (files) => {
       if (!files || files.length === 0) return;
-      const fileArray = Array.from(files);
+      let fileArray = Array.from(files);
+
+      // ── Client-side validation ───────────────────────────────────────────
+
+      // 1. File count
+      if (fileArray.length > MAX_FILE_COUNT) {
+        setErrorMsg(
+          `Too many files selected (${fileArray.length.toLocaleString()}). ` +
+          `Maximum is ${MAX_FILE_COUNT.toLocaleString()} files.`
+        );
+        setStatus('error');
+        return;
+      }
+
+      // 2. Per-file size — filter out oversized files and warn
+      const oversized = fileArray.filter((f) => f.size > MAX_FILE_SIZE);
+      if (oversized.length > 0) {
+        fileArray = fileArray.filter((f) => f.size <= MAX_FILE_SIZE);
+      }
+
+      if (fileArray.length === 0) {
+        setErrorMsg(
+          `All selected files exceed the 5 MB per-file limit. ` +
+          `Parquet data files are typically only ~6 KB each.`
+        );
+        setStatus('error');
+        return;
+      }
+
+      // 3. Total size
+      const totalSize = fileArray.reduce((sum, f) => sum + f.size, 0);
+      if (totalSize > MAX_TOTAL_SIZE) {
+        setErrorMsg(
+          `Total upload size (${(totalSize / (1024 * 1024)).toFixed(0)} MB) ` +
+          `exceeds the 100 MB limit.`
+        );
+        setStatus('error');
+        return;
+      }
+
+      // ── Proceed ─────────────────────────────────────────────────────────
+
+      setSkippedCount(oversized.length);
       setUploadingCount(fileArray.length);
       setStatus('uploading');
       setErrorMsg('');
@@ -267,8 +318,13 @@ export default function UploadScreen({ onUploadComplete }) {
         {busy && (
           <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-900/60 px-5 py-4 text-center">
             <p className="text-sm font-medium text-zinc-300">
-              Uploading {uploadingCount} {uploadingCount === 1 ? 'file' : 'files'}…
+              Uploading {uploadingCount.toLocaleString()} {uploadingCount === 1 ? 'file' : 'files'}…
             </p>
+            {skippedCount > 0 && (
+              <p className="mt-1 text-xs text-yellow-500">
+                {skippedCount} {skippedCount === 1 ? 'file' : 'files'} skipped (exceeded 5 MB per-file limit)
+              </p>
+            )}
             <p className="mt-1 text-xs text-zinc-500">
               Processing events and computing heatmaps
             </p>

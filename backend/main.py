@@ -31,6 +31,15 @@ from pipeline import (
 
 load_dotenv()
 
+# Starlette's multipart parser defaults to max 1000 files — raise it so the
+# full 1,243-file dataset can be uploaded in one request.
+try:
+    from starlette.formparsers import MultiPartParser
+    MultiPartParser.max_files = 10_000
+    MultiPartParser.max_fields = 10_000
+except Exception:
+    pass  # attribute may not exist on older Starlette builds
+
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
@@ -76,6 +85,15 @@ def _require_data() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Upload limits
+# ---------------------------------------------------------------------------
+
+MAX_FILE_COUNT = 2000
+MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024    # 5 MB per file
+MAX_TOTAL_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB total request body
+
+
+# ---------------------------------------------------------------------------
 # POST /upload
 # ---------------------------------------------------------------------------
 
@@ -93,12 +111,45 @@ async def upload(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
     if not files:
         raise HTTPException(status_code=400, detail="No files received.")
 
-    # Read all file bytes concurrently is not needed — FastAPI has already
-    # buffered them. Read sequentially and build the (filename, bytes) list
-    # that pipeline.process_uploaded_files expects.
+    if len(files) > MAX_FILE_COUNT:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Too many files: {len(files):,} received, "
+                f"maximum is {MAX_FILE_COUNT:,}."
+            ),
+        )
+
+    # Read all file bytes sequentially and build the (filename, bytes) list
+    # that pipeline.process_uploaded_files expects.  Enforce per-file and
+    # cumulative size limits while reading.
     file_payloads: List[tuple] = []
+    total_size = 0
     for upload_file in files:
         content = await upload_file.read()
+        file_size = len(content)
+
+        if file_size > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"File '{upload_file.filename}' is "
+                    f"{file_size / (1024 * 1024):.1f} MB, which exceeds the "
+                    f"5 MB per-file limit. Expected parquet files are tiny "
+                    f"(~6 KB each)."
+                ),
+            )
+
+        total_size += file_size
+        if total_size > MAX_TOTAL_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Total upload size exceeds the 100 MB limit. "
+                    f"Consider uploading in smaller batches."
+                ),
+            )
+
         # filename may include a relative folder path from webkitRelativePath
         filename = upload_file.filename or ""
         file_payloads.append((filename, content))
