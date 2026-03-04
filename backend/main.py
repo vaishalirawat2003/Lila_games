@@ -90,7 +90,6 @@ def _require_data() -> pd.DataFrame:
 
 MAX_FILE_COUNT = 2000
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024    # 5 MB per file
-MAX_TOTAL_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB total request body
 
 
 # ---------------------------------------------------------------------------
@@ -98,15 +97,23 @@ MAX_TOTAL_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB total request body
 # ---------------------------------------------------------------------------
 
 @app.post("/upload", summary="Upload parquet files and process them")
-async def upload(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
+async def upload(
+    files: List[UploadFile] = File(...),
+    reset: bool = Query(False, description="Clear existing data before processing this batch"),
+    finalize: bool = Query(False, description="Compute heatmaps after processing and return full summary"),
+) -> Dict[str, Any]:
     """
-    Accept one or more parquet files, process and cache them in memory.
+    Accept one or more parquet files, process and merge them into memory.
+
+    Designed for chunked batch uploads:
+      - First batch: reset=true  (clears previous session data)
+      - Middle batches: (no extra params — appends to existing)
+      - Last batch: finalize=true  (computes heatmaps, returns full summary)
+      - Single batch: reset=true&finalize=true  (clear + process + compute)
 
     Files should be the raw .nakama-0 parquet files from the player_data
     folders. The filename (including any folder path) is used to extract
     the date label (e.g. 'February_10').
-
-    Returns a summary of what was loaded.
     """
     if not files:
         raise HTTPException(status_code=400, detail="No files received.")
@@ -120,11 +127,8 @@ async def upload(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
             ),
         )
 
-    # Read all file bytes sequentially and build the (filename, bytes) list
-    # that pipeline.process_uploaded_files expects.  Enforce per-file and
-    # cumulative size limits while reading.
+    # Read all file bytes, enforce per-file size limit
     file_payloads: List[tuple] = []
-    total_size = 0
     for upload_file in files:
         content = await upload_file.read()
         file_size = len(content)
@@ -140,31 +144,35 @@ async def upload(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
                 ),
             )
 
-        total_size += file_size
-        if total_size > MAX_TOTAL_SIZE_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"Total upload size exceeds the 100 MB limit. "
-                    f"Consider uploading in smaller batches."
-                ),
-            )
-
-        # filename may include a relative folder path from webkitRelativePath
         filename = upload_file.filename or ""
         file_payloads.append((filename, content))
 
-    # Process — this is CPU-bound but fast enough for the dataset size
-    df = process_uploaded_files(file_payloads)
+    # Process this batch
+    df_batch = process_uploaded_files(file_payloads)
 
+    # Merge into store (or replace if reset=true)
+    if reset or _store["df"] is None or _store["df"].empty:
+        df = df_batch
+    else:
+        df = pd.concat([_store["df"], df_batch], ignore_index=True)
+
+    _store["df"] = df
+
+    if not finalize:
+        # Return lightweight partial status — heatmaps not yet computed
+        return {
+            "status": "partial",
+            "files_received": len(files),
+            "total_rows": len(df),
+        }
+
+    # finalize=true: compute heatmaps and return full summary
     if df.empty:
         raise HTTPException(
             status_code=422,
             detail="No valid parquet data found in the uploaded files.",
         )
 
-    # Pre-compute both heatmap variants once at upload time so GET requests
-    # are always instant regardless of the include_bots query param.
     human_df = df[~df["is_bot"]]
     heatmaps          = compute_all_heatmaps(df)
     heatmaps_no_bots  = compute_all_heatmaps(human_df)
@@ -172,7 +180,6 @@ async def upload(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
     maps_info         = get_maps_info(df, include_bots=True)
     maps_info_no_bots = get_maps_info(df, include_bots=False)
 
-    _store["df"]               = df
     _store["heatmaps"]         = heatmaps
     _store["heatmaps_no_bots"] = heatmaps_no_bots
     _store["maps_info"]        = maps_info

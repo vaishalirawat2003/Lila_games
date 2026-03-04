@@ -7,38 +7,73 @@
 
 const API_BASE = process.env.REACT_APP_API_URL || 'https://lilagames-production.up.railway.app';
 
-/**
- * Upload parquet files to the backend.
- *
- * Files must be a FileList or array of File objects. Each file's
- * webkitRelativePath (e.g. "February_10/uuid_match.nakama-0") is used as
- * the filename so the backend can extract the date label.
- *
- * @param {File[]} files
- * @returns {Promise<{status, match_count, player_count, map_count, maps}>}
- */
-export async function uploadFiles(files) {
-  const formData = new FormData();
+const BATCH_SIZE = 50;
 
+/**
+ * Send a single batch to /upload. Builds a fresh FormData so it can be
+ * safely retried without body-stream issues.
+ */
+async function sendBatch(files, params) {
+  const formData = new FormData();
   for (const file of files) {
-    // Prefer webkitRelativePath so the backend sees the date folder name.
-    // Fall back to just the filename if no relative path is available
-    // (e.g. when files are dragged in individually rather than as a folder).
     const name = file.webkitRelativePath || file.name;
     formData.append('files', file, name);
   }
-
-  const res = await fetch(`${API_BASE}/upload`, {
+  const res = await fetch(`${API_BASE}/upload?${params}`, {
     method: 'POST',
     body: formData,
   });
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'Upload failed');
+    throw new Error(err.detail || 'Batch upload failed');
+  }
+  return res.json();
+}
+
+/**
+ * Upload parquet files to the backend using chunked batch requests.
+ *
+ * Files are split into batches of 50 and sent sequentially. Each failed
+ * batch is retried once before throwing. The last batch triggers heatmap
+ * computation on the backend.
+ *
+ * @param {File[]} files
+ * @param {(batchNum: number, totalBatches: number) => void} [onProgress]
+ * @returns {Promise<{status, match_count, player_count, map_count, maps}>}
+ */
+export async function uploadFiles(files, onProgress) {
+  // Split into batches
+  const batches = [];
+  for (let i = 0; i < files.length; i += BATCH_SIZE) {
+    batches.push(files.slice(i, i + BATCH_SIZE));
   }
 
-  return res.json();
+  let lastResult = null;
+
+  for (let i = 0; i < batches.length; i++) {
+    const isFirst = i === 0;
+    const isLast  = i === batches.length - 1;
+    const batch   = batches[i];
+
+    onProgress?.(i + 1, batches.length);
+
+    const params = new URLSearchParams();
+    if (isFirst) params.set('reset', 'true');
+    if (isLast)  params.set('finalize', 'true');
+
+    try {
+      lastResult = await sendBatch(batch, params);
+    } catch (firstErr) {
+      // Retry once
+      try {
+        lastResult = await sendBatch(batch, params);
+      } catch (retryErr) {
+        throw new Error(`Batch ${i + 1} of ${batches.length} failed: ${retryErr.message}`);
+      }
+    }
+  }
+
+  return lastResult;
 }
 
 /**

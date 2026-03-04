@@ -74,10 +74,13 @@ function FolderIcon() {
   );
 }
 
-function ProgressBar() {
+function ProgressBar({ pct }) {
   return (
     <div className="w-full rounded-full bg-zinc-800 h-1.5 mt-3">
-      <div className="h-1.5 rounded-full bg-red-500 animate-pulse w-1/2" />
+      <div
+        className="h-1.5 rounded-full bg-red-500 transition-all duration-300"
+        style={{ width: `${Math.max(4, pct)}%` }}
+      />
     </div>
   );
 }
@@ -92,7 +95,6 @@ function ProgressBar() {
 
 const MAX_FILE_COUNT  = 2000;
 const MAX_FILE_SIZE   = 5 * 1024 * 1024;    // 5 MB per file
-const MAX_TOTAL_SIZE  = 100 * 1024 * 1024;  // 100 MB total
 
 export default function UploadScreen({ onUploadComplete }) {
   // 'idle' | 'staged' | 'uploading' | 'error'
@@ -102,6 +104,7 @@ export default function UploadScreen({ onUploadComplete }) {
   const [uploadingCount, setUploadingCount] = useState(0);
   const [skippedCount, setSkippedCount] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
 
   // Folder staging — accumulate files from multiple folder picks before uploading
   const [stagedFiles, setStagedFiles] = useState([]);
@@ -144,27 +147,19 @@ export default function UploadScreen({ onUploadComplete }) {
         return;
       }
 
-      // 3. Total size
-      const totalSize = fileArray.reduce((sum, f) => sum + f.size, 0);
-      if (totalSize > MAX_TOTAL_SIZE) {
-        setErrorMsg(
-          `Total upload size (${(totalSize / (1024 * 1024)).toFixed(0)} MB) ` +
-          `exceeds the 100 MB limit.`
-        );
-        setStatus('error');
-        return;
-      }
-
       // ── Proceed ─────────────────────────────────────────────────────────
 
       setSkippedCount(oversized.length);
       setUploadingCount(fileArray.length);
+      setBatchProgress({ current: 0, total: 0 });
       setStatus('uploading');
       setErrorMsg('');
       setStagedFiles([]);
       setStagedFolderCount(0);
       try {
-        const summary = await uploadFiles(fileArray);
+        const summary = await uploadFiles(fileArray, (current, total) => {
+          setBatchProgress({ current, total });
+        });
         onUploadComplete(summary);
       } catch (err) {
         setErrorMsg(err.message || 'Upload failed. Please try again.');
@@ -318,7 +313,9 @@ export default function UploadScreen({ onUploadComplete }) {
         {busy && (
           <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-900/60 px-5 py-4 text-center">
             <p className="text-sm font-medium text-zinc-300">
-              Uploading {uploadingCount.toLocaleString()} {uploadingCount === 1 ? 'file' : 'files'}…
+              {batchProgress.total > 0
+                ? `Uploading batch ${batchProgress.current} of ${batchProgress.total}…`
+                : `Preparing ${uploadingCount.toLocaleString()} files…`}
             </p>
             {skippedCount > 0 && (
               <p className="mt-1 text-xs text-yellow-500">
@@ -326,9 +323,15 @@ export default function UploadScreen({ onUploadComplete }) {
               </p>
             )}
             <p className="mt-1 text-xs text-zinc-500">
-              Processing events and computing heatmaps
+              {batchProgress.total > 0 && batchProgress.current === batchProgress.total
+                ? 'Computing heatmaps…'
+                : 'Processing events and computing heatmaps'}
             </p>
-            <ProgressBar />
+            <ProgressBar
+              pct={batchProgress.total > 0
+                ? Math.round((batchProgress.current / batchProgress.total) * 100)
+                : 4}
+            />
             <div className="mt-3 mx-auto h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-red-500" />
           </div>
         )}
