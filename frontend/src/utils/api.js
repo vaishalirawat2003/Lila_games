@@ -42,12 +42,24 @@ export async function uploadFiles(files) {
 }
 
 /**
+ * Fetch the list of available date labels in the loaded dataset.
+ * @returns {Promise<string[]>}  e.g. ["February_10", "February_11"]
+ */
+export async function fetchDates() {
+  const res = await fetch(`${API_BASE}/dates`);
+  if (!res.ok) throw new Error('Failed to fetch dates');
+  return res.json();
+}
+
+/**
  * Fetch per-map match and player counts.
  * @param {boolean} includeBots  include bot user_ids in player_count (default false)
+ * @param {string|null} date     e.g. "February_10" — filter to one date
  * @returns {Promise<{map_id, match_count, player_count}[]>}
  */
-export async function fetchMaps(includeBots = false) {
+export async function fetchMaps(includeBots = false, date = null) {
   const params = new URLSearchParams({ include_bots: includeBots });
+  if (date) params.append('date', date);
   const res = await fetch(`${API_BASE}/maps?${params}`);
   if (!res.ok) throw new Error('Failed to fetch maps');
   return res.json();
@@ -79,14 +91,16 @@ export async function fetchMatch(matchId) {
 }
 
 /**
- * Fetch a pre-computed heatmap grid.
+ * Fetch a heatmap grid (pre-computed for all-time, on-the-fly for a specific date).
  * @param {string} mapId
  * @param {'kills'|'deaths'|'storm'|'loot'|'traffic'} type
  * @param {boolean} includeBots  include bot rows in computation (default false)
+ * @param {string|null} date     e.g. "February_10" — filter to one date
  * @returns {Promise<{map_id, type, grid_size, cells, max_value}>}
  */
-export async function fetchHeatmap(mapId, type, includeBots = false) {
+export async function fetchHeatmap(mapId, type, includeBots = false, date = null) {
   const params = new URLSearchParams({ map: mapId, type, include_bots: includeBots });
+  if (date) params.append('date', date);
   const res = await fetch(`${API_BASE}/heatmap?${params}`);
   if (!res.ok) throw new Error(`Failed to fetch heatmap: ${mapId}/${type}`);
   return res.json();

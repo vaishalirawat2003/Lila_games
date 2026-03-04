@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pipeline import (
     HEATMAP_TYPES,
     compute_all_heatmaps,
+    compute_heatmap,
     get_maps_info,
     get_match_data,
     get_matches_for_map,
@@ -155,9 +156,22 @@ def health() -> Dict[str, Any]:
 # GET /maps
 # ---------------------------------------------------------------------------
 
+@app.get("/dates", summary="List available date labels in the loaded dataset")
+def dates() -> List[str]:
+    """
+    Returns the sorted list of date labels (e.g. ['February_10', 'February_11'])
+    extracted from uploaded file paths.  Empty list if no date info was found.
+    """
+    df = _require_data()
+    if "date" not in df.columns:
+        return []
+    return sorted(df["date"].dropna().unique().tolist())
+
+
 @app.get("/maps", summary="List maps with match counts")
 def maps(
     include_bots: bool = Query(False, description="Include bot users in player_count"),
+    date: Optional[str] = Query(None, description="e.g. February_10 — filter to one date"),
 ) -> List[Dict[str, Any]]:
     """
     Returns one entry per map present in the loaded data.
@@ -167,9 +181,13 @@ def maps(
 
     include_bots=false (default): player_count counts only human UUID users.
     include_bots=true: player_count counts all unique user_ids (humans + bots).
+    date: if provided, restrict counts to that date only.
     """
     _require_data()
-    return _store["maps_info"] if include_bots else _store["maps_info_no_bots"]
+    df = _store["df"]
+    if date and "date" in df.columns:
+        df = df[df["date"] == date]
+    return get_maps_info(df, include_bots=include_bots)
 
 
 # ---------------------------------------------------------------------------
@@ -241,13 +259,13 @@ def heatmap(
     map: str = Query(..., description="map_id — AmbroseValley | GrandRift | Lockdown"),
     type: str = Query(..., description=f"One of: {', '.join(HEATMAP_TYPES)}"),
     include_bots: bool = Query(False, description="Include bot rows in the heatmap computation"),
+    date: Optional[str] = Query(None, description="e.g. February_10 — filter to one date"),
 ) -> Dict[str, Any]:
     """
-    Returns a pre-computed 64×64 heatmap grid for the given map and event type.
+    Returns a 64×64 heatmap grid for the given map and event type.
 
-    include_bots=false (default): traffic layer uses only Position events from
-    human players; bot BotPosition rows are excluded.
-    include_bots=true: all rows included (original behaviour).
+    When date is omitted the pre-computed all-time cache is returned instantly.
+    When date is provided the grid is computed on-the-fly from the filtered data.
 
     Response shape:
       {
@@ -266,6 +284,21 @@ def heatmap(
             detail=f"Invalid type '{type}'. Must be one of: {HEATMAP_TYPES}",
         )
 
+    if date:
+        # On-the-fly computation for a specific date
+        df = _store["df"]
+        if not include_bots:
+            df = df[~df["is_bot"]]
+        if "date" in df.columns:
+            df = df[df["date"] == date]
+        if map not in df["map_id"].values:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No heatmap data for map '{map}' on date '{date}'.",
+            )
+        return compute_heatmap(df, map, type)
+
+    # All-time path — use pre-computed cache
     heatmaps = _store["heatmaps"] if include_bots else _store["heatmaps_no_bots"]
     if map not in heatmaps:
         raise HTTPException(

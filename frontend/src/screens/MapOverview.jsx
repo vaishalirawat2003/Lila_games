@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import ControlPanel from '../components/ControlPanel';
 import Legend from '../components/Legend';
 import MapCanvas from '../components/MapCanvas';
-import { fetchHeatmap, fetchMaps } from '../utils/api';
+import { fetchDates, fetchHeatmap, fetchMaps } from '../utils/api';
 
 const HEATMAP_TYPES = ['kills', 'deaths', 'storm', 'loot', 'traffic'];
 
@@ -34,6 +34,10 @@ export default function MapOverview({ summary, onExplore, onReupload }) {
   // Bots excluded by default — Level Designers care primarily about human behaviour
   const [includeBots, setIncludeBots] = useState(false);
 
+  // Date filter — null means all dates
+  const [dates, setDates] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(null);
+
   // Cache keyed by "mapId:includeBots" so both variants coexist without
   // invalidation — toggling bots twice costs one extra fetch, then it's instant.
   const [heatmapCache, setHeatmapCache] = useState({});
@@ -45,9 +49,14 @@ export default function MapOverview({ summary, onExplore, onReupload }) {
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
-  // Re-fetch per-map stats whenever the bots toggle changes
+  // Fetch available dates once on mount
   useEffect(() => {
-    fetchMaps(includeBots)
+    fetchDates().then(setDates).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetch per-map stats whenever the bots toggle or date filter changes
+  useEffect(() => {
+    fetchMaps(includeBots, selectedDate)
       .then((data) => {
         const byMap = {};
         for (const item of data) {
@@ -56,13 +65,13 @@ export default function MapOverview({ summary, onExplore, onReupload }) {
         setMapStats(byMap);
       })
       .catch(() => {}); // non-critical — stats show '—' on failure
-  }, [includeBots]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [includeBots, selectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch all 5 heatmap types for the given map + bots setting in parallel.
-  // Results are cached under "mapId:includeBots" so switching back is instant.
-  const loadHeatmapsForMap = useCallback(async (mapId, bots) => {
+  // Fetch all 5 heatmap types for the given map + bots + date in parallel.
+  // Results are cached under "mapId:includeBots:date" so switching back is instant.
+  const loadHeatmapsForMap = useCallback(async (mapId, bots, date) => {
     if (!mapId) return;
-    const cacheKey = `${mapId}:${bots}`;
+    const cacheKey = `${mapId}:${bots}:${date ?? 'all'}`;
     if (heatmapCache[cacheKey]) return; // already cached
 
     setLoading(true);
@@ -70,7 +79,7 @@ export default function MapOverview({ summary, onExplore, onReupload }) {
 
     try {
       const results = await Promise.all(
-        HEATMAP_TYPES.map((type) => fetchHeatmap(mapId, type, bots))
+        HEATMAP_TYPES.map((type) => fetchHeatmap(mapId, type, bots, date))
       );
       const byType = {};
       HEATMAP_TYPES.forEach((type, i) => { byType[type] = results[i]; });
@@ -83,14 +92,14 @@ export default function MapOverview({ summary, onExplore, onReupload }) {
     }
   }, [heatmapCache]);
 
-  // Load whenever the selected map or bots toggle changes
+  // Load whenever the selected map, bots toggle, or date filter changes
   useEffect(() => {
-    loadHeatmapsForMap(selectedMap, includeBots);
-  }, [selectedMap, includeBots]); // eslint-disable-line react-hooks/exhaustive-deps
+    loadHeatmapsForMap(selectedMap, includeBots, selectedDate);
+  }, [selectedMap, includeBots, selectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived data ───────────────────────────────────────────────────────────
 
-  const cacheKey = `${selectedMap}:${includeBots}`;
+  const cacheKey = `${selectedMap}:${includeBots}:${selectedDate ?? 'all'}`;
 
   // Build the ordered array of active heatmap layers for MapCanvas
   const heatmapLayers = LAYER_Z_ORDER
@@ -158,6 +167,9 @@ export default function MapOverview({ summary, onExplore, onReupload }) {
           selectedMap={selectedMap}
           mapStats={mapStats}
           loading={loading}
+          dates={dates}
+          selectedDate={selectedDate}
+          onDateChange={setSelectedDate}
         />
 
         {/* Vertical divider */}

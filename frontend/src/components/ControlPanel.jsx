@@ -14,6 +14,12 @@ const LAYER_CONFIG = [
   { value: 'traffic', label: 'Player traffic', color: '#4682B4' },
 ];
 
+/** "February_10" → "Feb 10" */
+function formatDate(d) {
+  const [month, day] = d.split('_');
+  return `${month.slice(0, 3)} ${day}`;
+}
+
 /**
  * ControlPanel — left sidebar for the Map Overview screen.
  *
@@ -27,6 +33,9 @@ const LAYER_CONFIG = [
  *   selectedMap        string   currently viewed map (for scoped stats)
  *   mapStats           object   { [mapId]: { match_count, player_count } }
  *   loading            bool     true while fetching heatmap data
+ *   dates              string[] available date labels e.g. ["February_10", ...]
+ *   selectedDate       string|null  null = all dates
+ *   onDateChange       fn(date|null)
  */
 export default function ControlPanel({
   activeLayers,
@@ -38,11 +47,33 @@ export default function ControlPanel({
   selectedMap,
   mapStats,
   loading,
+  dates,
+  selectedDate,
+  onDateChange,
 }) {
   const stats = mapStats?.[selectedMap];
 
   return (
     <aside className="flex w-44 shrink-0 flex-col gap-6 py-6 pl-5 pr-4 overflow-y-auto">
+
+      {/* Date filter */}
+      {dates && dates.length > 0 && (
+        <div>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+            Date
+          </p>
+          <select
+            value={selectedDate ?? ''}
+            onChange={(e) => onDateChange(e.target.value || null)}
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500"
+          >
+            <option value="">All dates</option>
+            {dates.map((d) => (
+              <option key={d} value={d}>{formatDate(d)}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Include bots toggle — positioned first; default OFF */}
       <div>
