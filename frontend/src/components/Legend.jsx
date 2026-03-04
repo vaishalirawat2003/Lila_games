@@ -8,7 +8,7 @@ const LAYER_META = {
   deaths:  { label: 'Death zones',   mid: '#A000C8', peak: '#CC00FF' },
   storm:   { label: 'Storm deaths',  mid: '#00B4B4', peak: '#00FFFF' },
   loot:    { label: 'Loot density',  mid: '#CCCC00', peak: '#00FF88' },
-  traffic: { label: 'Player traffic', mid: '#766aa4', peak: '#3500b2' },
+  traffic: { label: 'Player traffic', mid: '#a3a46a', peak: '#decb1e' },
 };
 
 const LAYER_ORDER = ['kills', 'deaths', 'storm', 'loot', 'traffic'];
