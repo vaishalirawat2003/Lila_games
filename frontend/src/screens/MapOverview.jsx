@@ -108,7 +108,7 @@ export default function MapOverview({ summary, onExplore, onReupload }) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-950 text-white">
+    <div className="flex h-screen flex-col bg-zinc-950 text-white overflow-hidden">
 
       {/* ── Top bar ─────────────────────────────────────────────────────────── */}
       <header className="flex items-center justify-between border-b border-zinc-800 px-6 py-3">
@@ -172,7 +172,7 @@ export default function MapOverview({ summary, onExplore, onReupload }) {
             </div>
           )}
 
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 overflow-hidden">
             <MapCanvas
               mapId={selectedMap}
               heatmapLayers={heatmapLayers}

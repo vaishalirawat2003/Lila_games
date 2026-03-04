@@ -42,7 +42,7 @@ export default function ControlPanel({
   const stats = mapStats?.[selectedMap];
 
   return (
-    <aside className="flex w-44 shrink-0 flex-col gap-6 py-6 pl-5 pr-4">
+    <aside className="flex w-44 shrink-0 flex-col gap-6 py-6 pl-5 pr-4 overflow-y-auto">
 
       {/* Include bots toggle — positioned first; default OFF */}
       <div>

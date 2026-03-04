@@ -248,21 +248,27 @@ export default function MatchCanvas({
 
   if (loading) {
     return (
-      <div className="flex aspect-square w-full items-center justify-center rounded-xl bg-zinc-900">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-red-500" />
-          <span className="text-xs text-zinc-500">Loading match…</span>
+      <div className="h-full w-full flex items-center justify-center">
+        <div className="h-full max-h-full max-w-full aspect-square flex items-center justify-center rounded-xl bg-zinc-900">
+          <div className="flex flex-col items-center gap-3">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-red-500" />
+            <span className="text-xs text-zinc-500">Loading match…</span>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={IMAGE_SIZE}
-      height={IMAGE_SIZE}
-      className="w-full rounded-xl"
-    />
+    <div className="h-full w-full flex items-center justify-center">
+      <div className="relative h-full max-h-full max-w-full aspect-square">
+        <canvas
+          ref={canvasRef}
+          width={IMAGE_SIZE}
+          height={IMAGE_SIZE}
+          className="block w-full h-full rounded-xl"
+        />
+      </div>
+    </div>
   );
 }
